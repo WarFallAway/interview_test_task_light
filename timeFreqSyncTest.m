@@ -48,6 +48,20 @@ for snrDbIdx = 1:length(snrDbRange)
         rxSignal = rxSignal + noise * db2mag(-snrDb);
         
         %% Synchronization
+        % Rough estimate
+        [~, maxIdxRough] = max(abs(smoothdata((rxSignal(2:end)).*conj(rxSignal(1:end-1)), 'movmean', length(freqSeq))));
+        if maxIdxRough+length(freqSeq)>length(rxSignal)
+            freqSeqFourier = fft(rxSignal(maxIdxRough:end));
+        else
+            freqSeqFourier = fft(rxSignal(maxIdxRough:maxIdxRough+length(freqSeq)));
+        end
+        [~, freqBurst] = max(freqSeqFourier);
+        freqBurst = freqBurst*sampleRate/length(freqSeqFourier);
+        
+        %Frequency shift
+        
+        rxSignal = rxSignal.*exp(1j*2*pi*(toneFreq-freqBurst)/sampleRate*(1:length(rxSignal)));
+        
         % Correlation
         correlation = conv(rxSignal, conj(synchSeq(end:-1:1)));
         
@@ -68,5 +82,5 @@ fig = figure;semilogy(snrDbRange, mean(syncFailed,1),'Linewidth',2);
 xlabel("SNR, dB"); ylabel("Probability of failed sync");
 ylim([1e-3 1])
 grid on; title("Initial frequency mismatch is "+string(round(freqError/1e3))+"KHz");
-saveas(fig, "res_"+string(round(freqError/1e3))+".png");
+%saveas(fig, "res_"+string(round(freqError/1e3))+".png");
 
