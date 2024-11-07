@@ -7,7 +7,7 @@ blockLength = 500;
 dataBlockCount = 10;
 sampleRate = 200e3;
 toneFreq = 50e3;
-freqError = 1e3;
+freqError = -80e3;
 snrDbRange = -20:2:20;
 seedCount = 1000;
 
@@ -46,31 +46,41 @@ for snrDbIdx = 1:length(snrDbRange)
         
         % Add noise with given snr
         rxSignal = rxSignal + noise * db2mag(-snrDb);
-        
         %% Synchronization
         % Rough estimate
-        [~, maxIdxRough] = max(abs(smoothdata((rxSignal(2:end)).*conj(rxSignal(1:end-1)), 'movmean', length(freqSeq))));
-        if maxIdxRough+length(freqSeq)>length(rxSignal)
-            freqSeqFourier = fft(rxSignal(maxIdxRough:end));
+        [~, maxIdxRough] = max(abs(conv((rxSignal(2:end)).*conj(rxSignal(1:end-1)), ones(1, length(freqSeq)))));
+        if maxIdxRough-length(freqSeq)+1<1
+            freqSeqFourier = fft(rxSignal(1:maxIdxRough));
+        elseif maxIdxRough>length(rxSignal)
+            syncFailed(seedIdx, snrDbIdx) = 1;
+            continue
+            
         else
-            freqSeqFourier = fft(rxSignal(maxIdxRough:maxIdxRough+length(freqSeq)));
+            freqSeqFourier = fft(rxSignal(maxIdxRough-length(freqSeq)+1:maxIdxRough));
         end
-        [~, freqBurst] = max(freqSeqFourier);
+        [~, freqBurst] = max(abs(freqSeqFourier));
         freqBurst = freqBurst*sampleRate/length(freqSeqFourier);
         
+        if freqBurst <= 150e3
+            freqErrorEst = freqBurst-toneFreq;
+        else
+            freqErrorEst = -(sampleRate-(freqBurst-toneFreq));
+        end
         %Frequency shift
-        
-        rxSignal = rxSignal.*exp(1j*2*pi*(toneFreq-freqBurst)/sampleRate*(1:length(rxSignal)));
-        
+        RXSIGNAL = rxSignal;
+        rxSignal = rxSignal.*exp(-1j*2*pi*freqErrorEst/sampleRate*(1:length(rxSignal)));
         % Correlation
-        correlation = conv(rxSignal, conj(synchSeq(end:-1:1)));
+        %correlation = conv(rxSignal, conj(synchSeq(end:-1:1))); Здесь
+        %почему-то в случае с freqErrorEst сигнал перестаёт коррелироваться
         
         % Peak finding
-        [~,maxIdx] = max(abs(correlation));
+        %[~,maxIdx] = max(abs(correlation));
         
         % Finding sync start
-        syncStart = maxIdx - length(synchSeq) + 1;
-        
+        %syncStart = maxIdx - length(synchSeq) + 1;
+        syncStart = maxIdxRough; %если есть информация о том,
+        %что сигнал синхронизации идёт после сигнала коррекции частоты, то
+        %можно попробовать так
         % Calculate squared timing error compared to reference sync start
         refSyncStart = length(freqSeq) + 1;
         syncFailed(seedIdx, snrDbIdx) = abs(syncStart - refSyncStart) > 3;
